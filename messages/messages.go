@@ -23,11 +23,11 @@ type UTXOs struct {
 }
 
 type SubmitTx struct {
-	Tx transaction.Transaction
+	Tx *transaction.Transaction
 }
 
 type NewTx struct {
-	Tx transaction.Transaction
+	Tx *transaction.Transaction
 }
 
 type FetchTemplate struct {
