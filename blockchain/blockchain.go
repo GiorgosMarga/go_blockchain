@@ -1,10 +1,12 @@
 package blockchain
 
 import (
+	"encoding/gob"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
+	"os"
 	"time"
 
 	"github.com/GiorgosMarga/blockchain/block"
@@ -77,11 +79,11 @@ func (b *Blockchain) AddBlock(block *block.Block) error {
 		delete(b.Mempool, tx.Hash())
 	}
 	b.Blocks = append(b.Blocks, block)
-	b.tryAdjustTarget()
+	b.TryAdjustTarget()
 	return nil
 }
 
-func (b *Blockchain) tryAdjustTarget() {
+func (b *Blockchain) TryAdjustTarget() {
 	if len(b.Blocks)%int(b.config.HalvingInterval) != 0 {
 		return
 	}
@@ -214,4 +216,21 @@ func (b *Blockchain) CleanupMempool() {
 		// delete from mempool
 		delete(b.Mempool, tx.Hash())
 	}
+}
+
+func (b *Blockchain) LoadToFile(filepath string) error {
+	f, err := os.OpenFile(filepath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	if err != nil {
+		return err
+	}
+
+	return gob.NewEncoder(f).Encode(b)
+}
+
+func (b *Blockchain) LoadFromFile(filepath string) error {
+	f, err := os.OpenFile(filepath, os.O_RDONLY, 0o666)
+	if err != nil {
+		return err
+	}
+	return gob.NewDecoder(f).Decode(b)
 }

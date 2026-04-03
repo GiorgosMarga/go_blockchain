@@ -12,7 +12,7 @@ import (
 
 type KeyPair struct {
 	PrivateKey *ecdsa.PrivateKey
-	PublickKey ecdsa.PublicKey
+	PublicKey ecdsa.PublicKey
 }
 
 func NewKeyPair() KeyPair {
@@ -23,7 +23,7 @@ func NewKeyPair() KeyPair {
 	}
 	return KeyPair{
 		PrivateKey: privateKey,
-		PublickKey: privateKey.PublicKey,
+		PublicKey: privateKey.PublicKey,
 	}
 }
 
@@ -36,16 +36,37 @@ func LoadFromFile(filename string) (KeyPair, error) {
 	if err != nil {
 		return KeyPair{}, err
 	}
-	priv, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), d)
+	block, _ := pem.Decode(d)
+	if block == nil {
+		return KeyPair{}, fmt.Errorf("failed to decode PEM")
+	}
+	priv, err := x509.ParseECPrivateKey(block.Bytes)
 	if err != nil {
 		return KeyPair{}, err
 	}
 	return KeyPair{
 		PrivateKey: priv,
-		PublickKey: priv.PublicKey,
+		PublicKey: priv.PublicKey,
 	}, nil
 }
-
+func LoadPubliFromFile(filename string) (KeyPair, error) {
+	d, err := os.ReadFile(filename)
+	if err != nil {
+		return KeyPair{}, err
+	}
+	block, _ := pem.Decode(d)
+	if block == nil {
+		return KeyPair{}, fmt.Errorf("failed to decode PEM")
+	}
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return KeyPair{}, err
+	}
+	pubKey := pub.(*ecdsa.PublicKey)
+	return KeyPair{
+		PublicKey: *pubKey,
+	}, nil
+}
 func (kp KeyPair) LoadToFile(filepath string) error {
 	// convert the private key to DER (binary) format
 	derBytes, err := x509.MarshalECPrivateKey(kp.PrivateKey)
@@ -60,7 +81,7 @@ func (kp KeyPair) LoadToFile(filepath string) error {
 	}
 
 	// create the file and write the PEM data
-	privfile, err := os.Create(fmt.Sprintf("%s_private", filepath))
+	privfile, err := os.Create(fmt.Sprintf("%s.priv.pem", filepath))
 	if err != nil {
 		return err
 	}
@@ -70,18 +91,18 @@ func (kp KeyPair) LoadToFile(filepath string) error {
 		return err
 	}
 
-	derBytes, err = x509.MarshalPKIXPublicKey(&kp.PublickKey)
+	derBytes, err = x509.MarshalPKIXPublicKey(&kp.PublicKey)
 	if err != nil {
 		return err
 	}
 
 	// create a PEM block
 	block = &pem.Block{
-		Type:  "PUBLIC KEY",
+		Type:  "EC PUBLIC KEY",
 		Bytes: derBytes,
 	}
 
-	pubfile, err := os.Create(fmt.Sprintf("%s_public", filepath))
+	pubfile, err := os.Create(fmt.Sprintf("%s.pub.pem", filepath))
 	if err != nil {
 		return err
 	}

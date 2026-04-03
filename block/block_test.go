@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/GiorgosMarga/blockchain/crypto"
-	"github.com/GiorgosMarga/blockchain/params"
 )
 
 func TestMine(t *testing.T) {
@@ -20,7 +19,7 @@ func TestMine(t *testing.T) {
 		},
 	}
 
-	for !b.Mine(1_000_000, params.MyConfig.MinTarget) {
+	for !b.Mine(1_000_000) {
 	}
 	fmt.Printf("%+v\n%x\n", b.Header, b.Header.CalculateHash())
 }
