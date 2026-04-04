@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
@@ -61,6 +62,7 @@ func DefaultHandshakeFn(conn net.Conn, myAddr string, myId uint32) (*Peer, error
 		return nil, err
 	}
 	peer := &Peer{}
+	peer.conn = conn
 	peer.id = binary.LittleEndian.Uint32(handshakeMsgResp[:n])
 	peer.address = string(handshakeMsgResp[4:n])
 	peer.decoder = gob.NewDecoder(conn)
@@ -69,12 +71,13 @@ func DefaultHandshakeFn(conn net.Conn, myAddr string, myId uint32) (*Peer, error
 }
 func New(address string) *TCPTransport {
 	return &TCPTransport{
-		Address:    address,
-		stopChan:   make(chan struct{}),
-		outputChan: make(chan []byte, 10),
-		peers:      make(map[string]*Peer),
-		Id:         rand.Uint32(),
-		mtx:        &sync.Mutex{},
+		Address:     address,
+		stopChan:    make(chan struct{}),
+		outputChan:  make(chan []byte, 10),
+		peers:       make(map[string]*Peer),
+		Id:          rand.Uint32(),
+		HandshakeFn: DefaultHandshakeFn,
+		mtx:         &sync.Mutex{},
 	}
 }
 
@@ -178,10 +181,15 @@ func (t *TCPTransport) readLoop(peer *Peer) error {
 	for {
 		msg := TCPMessage{}
 		if err := peer.decoder.Decode(&msg); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
 			fmt.Printf("error: %s\n", err)
+			continue
 		}
-		fmt.Printf("Received msg: %+v\n", msg)
+		t.outputChan <- msg.Payload
 	}
+	return nil
 }
 func (t *TCPTransport) Send(to string, payload []byte) error {
 	peer, exists := t.peers[to]

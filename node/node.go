@@ -52,7 +52,10 @@ func NewNode(listenAddr, blockchainPath string, peerNodes ...string) *Node {
 		Transport:  transport.New(listenAddr),
 		bcpath:     blockchainPath,
 		peerNodes:  make([]string, 0, len(peerNodes)),
+		Blockchain: &blockchain.Blockchain{},
 	}
+	go n.Transport.Start()
+
 	n.internalChans = map[MsgChan]chan any{
 		BlockResp:      make(chan any, 5),
 		DifferenceResp: make(chan any, 5),
@@ -61,6 +64,7 @@ func NewNode(listenAddr, blockchainPath string, peerNodes ...string) *Node {
 		if err := n.Transport.Connect(peerNode); err != nil {
 			log.Printf("[Node]: error connecting with %s: %s\n", peerNode, err)
 		}
+		n.peerNodes = append(n.peerNodes, peerNode)
 	}
 	if fileExists(n.bcpath) {
 		if err := n.loadBlockchain(n.bcpath); err != nil {
@@ -76,6 +80,7 @@ func NewNode(listenAddr, blockchainPath string, peerNodes ...string) *Node {
 			if err != nil {
 				panic(err)
 			}
+			fmt.Println("Max height peer:", maxHeightPeer, "max height:", maxHeight)
 			if err := n.getBlockchain(maxHeightPeer, maxHeight); err != nil {
 				panic(err)
 			}
@@ -88,7 +93,6 @@ func NewNode(listenAddr, blockchainPath string, peerNodes ...string) *Node {
 }
 
 func (n *Node) Start() {
-	go n.Transport.Start()
 	go n.saveBlockchain()
 	for msg := range n.Transport.Consume() {
 		b := bytes.NewReader(msg)
@@ -99,6 +103,7 @@ func (n *Node) Start() {
 		}
 		switch msg := receivedMsg.(type) {
 		case *messages.DifferenceReq:
+			fmt.Println("difference request")
 			if err := n.handleDifferenceReq(msg); err != nil {
 				log.Println(err)
 			}
@@ -177,7 +182,7 @@ func (n *Node) findLongestChainNode() (string, int, error) {
 	maxHeight := 0
 	maxHeightPeer := ""
 
-	msg := messages.DifferenceReq{Height: 0}
+	msg := &messages.DifferenceReq{Height: 0}
 	buf := new(bytes.Buffer)
 	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
 		log.Printf("[Node]: error encoding difference request message: %s\n", err)

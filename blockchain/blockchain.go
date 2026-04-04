@@ -85,6 +85,9 @@ func (b *Blockchain) AddBlock(block *block.Block) error {
 }
 
 func (b *Blockchain) TryAdjustTarget() {
+	if len(b.Blocks) == 0 {
+		return
+	}
 	if len(b.Blocks)%int(b.config.HalvingInterval) != 0 {
 		return
 	}
