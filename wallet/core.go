@@ -36,7 +36,7 @@ func (c *Core) stop() {
 	c.stop()
 }
 func (c *Core) SendTx(tx *transaction.Transaction) error {
-	msg := messages.SubmitTx{
+	msg := messages.SubmitTransaction{
 		Tx: tx,
 	}
 	buf := new(bytes.Buffer)
@@ -134,9 +134,8 @@ func (c *Core) FetchUtxos() error {
 	log.Printf("Trying to fetch utxos from default node %s...\n", c.Config.DefaultNode)
 
 	for _, key := range c.Utxos.myKeys {
-		pubKeyBuf, _ := key.PublicKey.Bytes()
-		msg := messages.FetchUTXOs{
-			PublicKey: crypto.Hash(pubKeyBuf),
+		msg := messages.FetchUTXOsReq{
+			PublicKey: key.PublicKey,
 		}
 		buf := new(bytes.Buffer)
 		if err := gob.NewEncoder(buf).Encode(msg); err != nil {
@@ -151,7 +150,7 @@ func (c *Core) FetchUtxos() error {
 }
 func (c *Core) handleMessages() {
 	for msg := range c.Transport.Consume() {
-		utxoResp := messages.UTXOs{}
+		utxoResp := messages.UTXOsResp{}
 		gob.NewDecoder(bytes.NewReader(msg)).Decode(&utxoResp)
 		fmt.Printf("Received utxo msg %+v\n", utxoResp)
 	}

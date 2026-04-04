@@ -1,11 +1,15 @@
 package transport
 
 import (
+	"encoding/binary"
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"math/rand"
 	"net"
+	"sync"
 )
 
 var (
@@ -18,34 +22,118 @@ type Transport interface {
 	Send(string, []byte) error
 	Broadcast([]byte) error
 	Consume() <-chan []byte
+	AddPeer(string)
+	Connect(string) error
 }
 type TCPMessage struct {
 	Payload []byte
 }
 type Peer struct {
-	conn    net.Conn
-	decoder *gob.Decoder
-	encoder *gob.Encoder
-	address string
+	conn       net.Conn
+	decoder    *gob.Decoder
+	encoder    *gob.Encoder
+	address    string
+	id         uint32
+	isOutbound bool
 }
 
 type TCPTransport struct {
-	Address    string
-	ln         net.Listener
-	stopChan   chan struct{}
-	outputChan chan []byte
-	peers      map[string]*Peer
+	Address     string
+	Id          uint32
+	ln          net.Listener
+	stopChan    chan struct{}
+	outputChan  chan []byte
+	peers       map[string]*Peer
+	HandshakeFn func(net.Conn, string, uint32) (*Peer, error)
+	mtx         *sync.Mutex
 }
 
+func DefaultHandshakeFn(conn net.Conn, myAddr string, myId uint32) (*Peer, error) {
+	handshakeMsg := make([]byte, 0)
+	handshakeMsg = binary.LittleEndian.AppendUint32(handshakeMsg, myId)
+	handshakeMsg = append(handshakeMsg, []byte(myAddr)...)
+
+	if _, err := conn.Write(handshakeMsg); err != nil {
+		return nil, err
+	}
+	handshakeMsgResp := make([]byte, 1024)
+	n, err := conn.Read(handshakeMsgResp)
+	if err != nil {
+		return nil, err
+	}
+	peer := &Peer{}
+	peer.conn = conn
+	peer.id = binary.LittleEndian.Uint32(handshakeMsgResp[:n])
+	peer.address = string(handshakeMsgResp[4:n])
+	peer.decoder = gob.NewDecoder(conn)
+	peer.encoder = gob.NewEncoder(conn)
+	return peer, nil
+}
 func New(address string) *TCPTransport {
 	return &TCPTransport{
-		Address:    address,
-		stopChan:   make(chan struct{}),
-		outputChan: make(chan []byte, 10),
-		peers:      make(map[string]*Peer),
+		Address:     address,
+		stopChan:    make(chan struct{}),
+		outputChan:  make(chan []byte, 10),
+		peers:       make(map[string]*Peer),
+		Id:          rand.Uint32(),
+		HandshakeFn: DefaultHandshakeFn,
+		mtx:         &sync.Mutex{},
 	}
 }
 
+func (t *TCPTransport) AddPeer(addr string) {
+	t.peers[addr] = &Peer{
+		address: addr,
+	}
+}
+func (t *TCPTransport) Connect(addr string) error {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+	peer, err := t.HandshakeFn(conn, t.Address, t.Id)
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	peer.isOutbound = true
+	if !t.registerPeer(peer) {
+		// rejected (duplicate)
+		conn.Close()
+		return nil
+	}
+	go t.readLoop(peer)
+	return nil
+}
+
+func (t *TCPTransport) registerPeer(peer *Peer) bool {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
+
+	existingPeer, exists := t.peers[peer.address]
+	if !exists {
+		t.peers[peer.address] = peer
+		return true
+	}
+
+	// peer exists need to keep only one (inbound or outbound)
+	// prefer outbound
+	if existingPeer.isOutbound {
+		return false
+	}
+	if peer.isOutbound {
+		existingPeer.conn.Close()
+		t.peers[peer.address] = peer
+		return true
+	}
+	// fallback deterministic rule
+	if t.Id < peer.id {
+		return false
+	}
+	existingPeer.conn.Close()
+	t.peers[peer.address] = peer
+	return true
+}
 func (t *TCPTransport) Start() error {
 	ln, err := net.Listen("tcp", t.Address)
 	if err != nil {
@@ -74,22 +162,35 @@ func (t *TCPTransport) Stop() {
 func (t *TCPTransport) Consume() <-chan []byte {
 	return t.outputChan
 }
-func (t *TCPTransport) handleConn(conn net.Conn) {
-	// TODO: handshake
-	peer := &Peer{
-		conn:    conn,
-		decoder: gob.NewDecoder(conn),
-		encoder: gob.NewEncoder(conn),
+func (t *TCPTransport) handleConn(conn net.Conn) error {
+	peer, err := t.HandshakeFn(conn, t.Address, t.Id)
+	if err != nil {
+		conn.Close()
+		return err
 	}
+	peer.isOutbound = false
+	if !t.registerPeer(peer) {
+		// drop connection duplicate
+		conn.Close()
+		return nil
+	}
+	return t.readLoop(peer)
+}
+func (t *TCPTransport) readLoop(peer *Peer) error {
+	defer peer.conn.Close()
 	for {
 		msg := TCPMessage{}
 		if err := peer.decoder.Decode(&msg); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
 			fmt.Printf("error: %s\n", err)
+			continue
 		}
-		fmt.Printf("Received msg: %+v\n", msg)
+		t.outputChan <- msg.Payload
 	}
+	return nil
 }
-
 func (t *TCPTransport) Send(to string, payload []byte) error {
 	peer, exists := t.peers[to]
 	if !exists {
