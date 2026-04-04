@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"crypto/ecdsa"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -216,6 +217,42 @@ func (b *Blockchain) CleanupMempool() {
 		// delete from mempool
 		delete(b.Mempool, tx.Hash())
 	}
+}
+
+func (b *Blockchain) RebuildUtxos() {
+	for _, block := range b.Blocks {
+		for _, tx := range block.Txs {
+			for _, txInput := range tx.Vin {
+				delete(b.Utxos, txInput.PrevTxOutputHash)
+			}
+			for _, txOutput := range tx.Vout {
+				b.Utxos[txOutput.Hash()] = utils.UtxoEntry{IsSpent: false, TxOutput: txOutput}
+			}
+		}
+	}
+}
+func (b *Blockchain) GetUtxos(pubKey ecdsa.PublicKey) []utils.UtxoEntry {
+	pubKeyBytes, _ := pubKey.Bytes()
+	utxos := make([]utils.UtxoEntry, 0)
+	for _, entry := range b.Utxos {
+		if entry.TxOutput.PublicKey == crypto.Hash(pubKeyBytes) {
+			utxos = append(utxos, entry)
+		}
+	}
+	return utxos
+}
+func (b *Blockchain) GetTxsFromMempool() []*transaction.Transaction {
+
+	txs := make([]*transaction.Transaction, 0, b.config.BlockTxCap)
+	txsCtr := 0
+	for k := range b.Mempool {
+		txs = append(txs, b.Mempool[k].Tx)
+		txsCtr++
+		if txsCtr > int(b.config.BlockTxCap) {
+			break
+		}
+	}
+	return txs
 }
 
 func (b *Blockchain) LoadToFile(filepath string) error {

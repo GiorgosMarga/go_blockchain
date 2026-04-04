@@ -52,7 +52,7 @@ func (b *Block) VerifyTransactions(predictedBlockHeight int, utxos map[crypto.Ha
 		return ErrEmptyBlock
 	}
 
-	if err := b.verifyCoinbaseTx(predictedBlockHeight, utxos); err != nil {
+	if err := b.VerifyCoinbaseTx(predictedBlockHeight, utxos); err != nil {
 		return err
 	}
 
@@ -97,7 +97,7 @@ func (b *Block) VerifyTransactions(predictedBlockHeight int, utxos map[crypto.Ha
 	return nil
 }
 
-func (b *Block) verifyCoinbaseTx(predictedBlockHeight int, utxos map[crypto.Hash]utils.UtxoEntry) error {
+func (b *Block) VerifyCoinbaseTx(predictedBlockHeight int, utxos map[crypto.Hash]utils.UtxoEntry) error {
 	coinbaseTx := b.Txs[0]
 	if len(coinbaseTx.Vin) != 0 {
 		return ErrInvalidCoinbaseTx
@@ -106,7 +106,7 @@ func (b *Block) verifyCoinbaseTx(predictedBlockHeight int, utxos map[crypto.Hash
 		return ErrInvalidCoinbaseTx
 	}
 
-	minerFees, err := b.calculateMinerFees(utxos)
+	minerFees, err := b.CalculateMinerFees(utxos)
 	if err != nil {
 		return err
 	}
@@ -125,7 +125,7 @@ func (b *Block) verifyCoinbaseTx(predictedBlockHeight int, utxos map[crypto.Hash
 	return nil
 }
 
-func (b *Block) calculateMinerFees(utxos map[crypto.Hash]utils.UtxoEntry) (uint64, error) {
+func (b *Block) CalculateMinerFees(utxos map[crypto.Hash]utils.UtxoEntry) (uint64, error) {
 	var inputAmount uint64 = 0
 	var outputAmount uint64 = 0
 

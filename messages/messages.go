@@ -1,6 +1,8 @@
 package messages
 
 import (
+	"crypto/ecdsa"
+
 	"github.com/GiorgosMarga/blockchain/block"
 	"github.com/GiorgosMarga/blockchain/crypto"
 	"github.com/GiorgosMarga/blockchain/transaction"
@@ -14,16 +16,14 @@ type Message struct {
 }
 
 // messages types
-type FetchUTXOs struct {
-	PublicKey crypto.Hash
+type FetchUTXOsReq struct {
+	FromAddr  string
+	PublicKey ecdsa.PublicKey
 }
 
-type UTXOs struct {
-	Utxos map[crypto.Hash]utils.UtxoEntry
-}
-
-type SubmitTx struct {
-	Tx *transaction.Transaction
+type UTXOsResp struct {
+	FromAddr string
+	Utxos    []utils.UtxoEntry
 }
 
 type NewTx struct {
@@ -32,19 +32,48 @@ type NewTx struct {
 
 type FetchTemplate struct {
 	PublicKey crypto.Hash
+	FromAddr string
 }
 type Template struct {
 	Block *block.Block
 }
 
-type ValidateTemplate struct {
-	Block *block.Block
+type ValidateTemplateReq struct {
+	Block    *block.Block
+	FromAddr string
 }
 
-type TemplateValidity struct {
-	IsValid bool
+type ValidateTemplateResp struct {
+	IsValid  bool
+	FromAddr string
 }
 
 type SubmitTemplate struct {
+	Block *block.Block
+}
+type SubmitTransaction struct {
+	Tx *transaction.Transaction
+}
+type FetchBlockReq struct {
+	Height   int
+	FromAddr string
+}
+type FetchBlockResp struct {
+	Block    *block.Block
+	Height   int
+	FromAddr string
+}
+
+type DifferenceReq struct {
+	Height   int
+	FromAddr string
+}
+
+type DifferenceResp struct {
+	Height   int
+	FromAddr string
+}
+
+type NewBlock struct {
 	Block *block.Block
 }
