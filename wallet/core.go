@@ -3,9 +3,10 @@ package wallet
 import (
 	"bytes"
 	"crypto/ecdsa"
-	"encoding/gob"
+	"crypto/elliptic"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/GiorgosMarga/blockchain/crypto"
 	"github.com/GiorgosMarga/blockchain/messages"
@@ -13,24 +14,51 @@ import (
 	"github.com/GiorgosMarga/blockchain/transport"
 )
 
+type MsgType byte
+
+const (
+	UtxosMsg MsgType = iota
+)
+
 type Core struct {
-	Config    Config
-	Utxos     UtxoStore
-	TxChan    chan transaction.Transaction
-	Transport *transport.TCPTransport
+	Config        Config
+	Utxos         UtxoStore
+	TxChan        chan transaction.Transaction
+	Transport     *transport.TCPTransport
+	knownPeers    []string
+	listenAddr    string
+	internalChans map[MsgType]chan any
 }
 
-func NewCore(config Config, utxos UtxoStore) *Core {
-	return &Core{
-		Config:    config,
-		Utxos:     utxos,
-		TxChan:    make(chan transaction.Transaction),
-		Transport: transport.New(":3001"),
+func NewCore(listenAddr string, config Config, utxos UtxoStore, peers ...string) *Core {
+	c := &Core{
+		listenAddr: listenAddr,
+		Config:     config,
+		Utxos:      utxos,
+		TxChan:     make(chan transaction.Transaction),
+		Transport:  transport.New(listenAddr),
+		knownPeers: make([]string, 0, len(peers)),
+		internalChans: map[MsgType]chan any{
+			UtxosMsg: make(chan any, 10),
+		},
 	}
+
+	for _, peerAddr := range peers {
+		if err := c.Transport.Connect(peerAddr); err != nil {
+			fmt.Println(err)
+			continue
+		}
+		c.knownPeers = append(c.knownPeers, peerAddr)
+	}
+	return c
 }
 func (c *Core) start() {
 	go c.Transport.Start()
-	c.handleMessages()
+
+	go c.handleMessages()
+
+	_ = c.FetchUtxos()
+	time.Sleep(10 * time.Minute)
 }
 func (c *Core) stop() {
 	c.stop()
@@ -39,11 +67,7 @@ func (c *Core) SendTx(tx *transaction.Transaction) error {
 	msg := messages.SubmitTransaction{
 		Tx: tx,
 	}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		return err
-	}
-	return c.Transport.Broadcast(buf.Bytes())
+	return c.Transport.Broadcast(msg)
 }
 
 func (c *Core) CreateTx(recipientKey ecdsa.PublicKey, amount uint) (*transaction.Transaction, error) {
@@ -57,6 +81,7 @@ func (c *Core) CreateTx(recipientKey ecdsa.PublicKey, amount uint) (*transaction
 	inputSum := 0
 
 	for pubKey, entries := range c.Utxos.utxos {
+		pubBuf := elliptic.MarshalCompressed(elliptic.P256(), pubKey.X, pubKey.Y)
 		for _, entry := range entries {
 			if entry.IsSpent {
 				continue
@@ -65,7 +90,7 @@ func (c *Core) CreateTx(recipientKey ecdsa.PublicKey, amount uint) (*transaction
 				break
 			}
 			for _, kp := range c.Utxos.myKeys {
-				if pubKey.Equal(kp.PublicKey) {
+				if bytes.Equal(pubBuf, kp.PublicKeyBytes()) {
 					sig, err := kp.Sign(entry.TxOutput.Hash())
 					if err != nil {
 						return nil, err
@@ -90,17 +115,16 @@ func (c *Core) CreateTx(recipientKey ecdsa.PublicKey, amount uint) (*transaction
 	outputs := []*transaction.TxOutput{
 		{
 			Value:     uint64(amount),
-			Id:        "unique_id_",
-			PublicKey: crypto.Hash(bufKey[:]),
+			Id:        crypto.Random(),
+			PublicKey: elliptic.MarshalCompressed(elliptic.P256(), recipientKey.X, recipientKey.Y),
 		},
 	}
 	if inputSum > int(totalAmount) {
-		myPubKey, _ := c.Utxos.myKeys[0].PublicKey.Bytes()
 		outputs = append(outputs,
 			&transaction.TxOutput{
 				Value:     uint64(inputSum - int(amount)),
-				Id:        "unique_id_2",
-				PublicKey: crypto.Hash(myPubKey[:]),
+				Id:        crypto.Random(),
+				PublicKey: c.Utxos.myKeys[0].PublicKeyBytes(),
 			})
 	}
 	return &transaction.Transaction{
@@ -135,24 +159,36 @@ func (c *Core) FetchUtxos() error {
 
 	for _, key := range c.Utxos.myKeys {
 		msg := messages.FetchUTXOsReq{
-			PublicKey: key.PublicKey,
+			PublicKey: key.PublicKeyBytes(),
+			FromAddr:  c.listenAddr,
 		}
-		buf := new(bytes.Buffer)
-		if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-			return err
-		}
-		if err := c.Transport.Send(c.Config.DefaultNode, buf.Bytes()); err != nil {
+		if err := c.Transport.Send(c.Config.DefaultNode, msg); err != nil {
 			log.Println(err)
 		}
+		select {
+		case msg := <-c.internalChans[UtxosMsg]:
+			utxoMsg, ok := msg.(messages.UTXOsResp)
+			if !ok {
+				fmt.Printf("[Wallet]: received invalid msg %+v\n", utxoMsg)
+				continue
+			}
+			for _, entry := range utxoMsg.Utxos {
+				fmt.Printf("Received: %x %v\n", entry.TxOutput.Hash(), entry.TxOutput)
+			}
+			c.Utxos.utxos[key.PublicKey] = utxoMsg.Utxos
+		case <-time.After(2 * time.Second):
+			continue
+		}
 	}
-
+	fmt.Printf("[Wallet]: Current balance %d shatoshi\n", c.GetBalance())
 	return nil
 }
 func (c *Core) handleMessages() {
-	for msg := range c.Transport.Consume() {
-		utxoResp := messages.UTXOsResp{}
-		gob.NewDecoder(bytes.NewReader(msg)).Decode(&utxoResp)
-		fmt.Printf("Received utxo msg %+v\n", utxoResp)
+	for tcpMsg := range c.Transport.Consume() {
+		switch msg := tcpMsg.(type) {
+		case messages.UTXOsResp:
+			c.internalChans[UtxosMsg] <- msg
+		}
 	}
 	fmt.Println("stopping")
 }

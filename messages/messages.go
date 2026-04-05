@@ -1,10 +1,7 @@
 package messages
 
 import (
-	"crypto/ecdsa"
-
 	"github.com/GiorgosMarga/blockchain/block"
-	"github.com/GiorgosMarga/blockchain/crypto"
 	"github.com/GiorgosMarga/blockchain/transaction"
 	"github.com/GiorgosMarga/blockchain/utils"
 )
@@ -18,7 +15,7 @@ type Message struct {
 // messages types
 type FetchUTXOsReq struct {
 	FromAddr  string
-	PublicKey ecdsa.PublicKey
+	PublicKey []byte
 }
 
 type UTXOsResp struct {
@@ -31,8 +28,8 @@ type NewTx struct {
 }
 
 type FetchTemplate struct {
-	PublicKey crypto.Hash
-	FromAddr string
+	PublicKey []byte
+	FromAddr  string
 }
 type Template struct {
 	Block *block.Block

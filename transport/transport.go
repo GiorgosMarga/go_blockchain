@@ -10,6 +10,8 @@ import (
 	"math/rand"
 	"net"
 	"sync"
+
+	"github.com/GiorgosMarga/blockchain/messages"
 )
 
 var (
@@ -19,14 +21,16 @@ var (
 type Transport interface {
 	Start() error
 	Stop()
-	Send(string, []byte) error
-	Broadcast([]byte) error
-	Consume() <-chan []byte
+	Send(string, any) error
+	Broadcast(any) error
+	Consume() <-chan any
 	AddPeer(string)
 	Connect(string) error
 }
 type TCPMessage struct {
-	Payload []byte
+	From    string
+	To      string
+	Payload any
 }
 type Peer struct {
 	conn       net.Conn
@@ -42,7 +46,7 @@ type TCPTransport struct {
 	Id          uint32
 	ln          net.Listener
 	stopChan    chan struct{}
-	outputChan  chan []byte
+	outputChan  chan any
 	peers       map[string]*Peer
 	HandshakeFn func(net.Conn, string, uint32) (*Peer, error)
 	mtx         *sync.Mutex
@@ -70,15 +74,31 @@ func DefaultHandshakeFn(conn net.Conn, myAddr string, myId uint32) (*Peer, error
 	return peer, nil
 }
 func New(address string) *TCPTransport {
+	gobInit()
 	return &TCPTransport{
 		Address:     address,
 		stopChan:    make(chan struct{}),
-		outputChan:  make(chan []byte, 10),
+		outputChan:  make(chan any, 10),
 		peers:       make(map[string]*Peer),
 		Id:          rand.Uint32(),
 		HandshakeFn: DefaultHandshakeFn,
 		mtx:         &sync.Mutex{},
 	}
+}
+
+func gobInit() {
+	gob.Register(messages.DifferenceReq{})
+	gob.Register(messages.DifferenceResp{})
+	gob.Register(messages.FetchBlockReq{})
+	gob.Register(messages.FetchBlockResp{})
+	gob.Register(messages.FetchTemplate{})
+	gob.Register(messages.Template{})
+	gob.Register(messages.FetchUTXOsReq{})
+	gob.Register(messages.UTXOsResp{})
+	gob.Register(messages.SubmitTransaction{})
+	gob.Register(messages.NewTx{})
+	gob.Register(messages.NewBlock{})
+	gob.Register(messages.SubmitTemplate{})
 }
 
 func (t *TCPTransport) AddPeer(addr string) {
@@ -159,7 +179,7 @@ func (t *TCPTransport) Start() error {
 func (t *TCPTransport) Stop() {
 	t.stopChan <- struct{}{}
 }
-func (t *TCPTransport) Consume() <-chan []byte {
+func (t *TCPTransport) Consume() <-chan any {
 	return t.outputChan
 }
 func (t *TCPTransport) handleConn(conn net.Conn) error {
@@ -191,18 +211,20 @@ func (t *TCPTransport) readLoop(peer *Peer) error {
 	}
 	return nil
 }
-func (t *TCPTransport) Send(to string, payload []byte) error {
+func (t *TCPTransport) Send(to string, payload any) error {
 	peer, exists := t.peers[to]
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrPeerNotFound, to)
 	}
 	msg := &TCPMessage{
+		From:    t.Address,
+		To:      to,
 		Payload: payload,
 	}
 	return peer.encoder.Encode(msg)
 }
 
-func (t *TCPTransport) Broadcast(payload []byte) error {
+func (t *TCPTransport) Broadcast(payload any) error {
 	for _, peer := range t.peers {
 		if err := t.Send(peer.address, payload); err != nil {
 			log.Printf("[TCP]: Err broadcasting msg to %s\n", peer.address)
