@@ -1,8 +1,6 @@
 package miner
 
 import (
-	"bytes"
-	"encoding/gob"
 	"fmt"
 	"log"
 	"sync"
@@ -10,33 +8,53 @@ import (
 	"time"
 
 	"github.com/GiorgosMarga/blockchain/block"
-	"github.com/GiorgosMarga/blockchain/crypto"
 	"github.com/GiorgosMarga/blockchain/messages"
-	"github.com/GiorgosMarga/blockchain/params"
-	"github.com/GiorgosMarga/blockchain/transaction"
 	"github.com/GiorgosMarga/blockchain/transport"
 )
 
+type MsgType byte
+
+const (
+	FetchTemplateResp MsgType = iota
+)
+
 type Miner struct {
-	PublicKey crypto.Hash
-	isMining  atomic.Bool
+	listenAddr string
+	peersAddr  []string
+	PublicKey  []byte
+	isMining   atomic.Bool
 
 	currTemplate    *block.Block
 	currTemplateMtx *sync.Mutex
 
 	blockChan chan *block.Block
 
-	transport transport.Transport
+	transport     transport.Transport
+	internalChans map[MsgType]chan any
 }
 
-func New(address string, publicKey crypto.Hash) *Miner {
-	return &Miner{
+func New(address string, publicKey []byte, peers ...string) *Miner {
+	m := &Miner{
+		listenAddr:      address,
+		peersAddr:       make([]string, 0, len(peers)),
 		PublicKey:       publicKey,
 		isMining:        atomic.Bool{},
 		currTemplateMtx: &sync.Mutex{},
 		blockChan:       make(chan *block.Block),
 		transport:       transport.New(address),
+		internalChans: map[MsgType]chan any{
+			FetchTemplateResp: make(chan any, 10),
+		},
 	}
+
+	for _, peerAddr := range peers {
+		if err := m.transport.Connect(peerAddr); err != nil {
+			fmt.Println(err)
+			continue
+		}
+		m.peersAddr = append(m.peersAddr, peerAddr)
+	}
+	return m
 }
 
 func (m *Miner) Start() error {
@@ -52,11 +70,18 @@ func (m *Miner) Start() error {
 		case b := <-m.blockChan:
 			log.Printf("[Miner]: Mined new block %x\n", b.Hash())
 			m.submitBlock()
+		case tcpMsg := <-m.transport.Consume():
+			switch msg := tcpMsg.(type) {
+			case messages.Template:
+				m.internalChans[FetchTemplateResp] <- msg
+			default:
+				fmt.Printf("invalid msg: %+v\n", msg)
+			}
 		case <-time.After(5 * time.Second):
 			if m.isMining.Load() {
-				m.validateTemplate()
+				go m.validateTemplate()
 			} else {
-				m.fetchTemplate()
+				go m.fetchTemplate()
 			}
 		}
 	}
@@ -78,18 +103,10 @@ func (m *Miner) startMining() {
 }
 func (m *Miner) submitBlock() {
 	log.Println("Submiting block...")
-
 	submitBlock := messages.SubmitTemplate{
 		Block: m.currTemplate,
 	}
-
-	buf := new(bytes.Buffer)
-
-	if err := gob.NewEncoder(buf).Encode(submitBlock); err != nil {
-		panic(err)
-	}
-
-	if err := m.transport.Broadcast(buf.Bytes()); err != nil {
+	if err := m.transport.Broadcast(submitBlock); err != nil {
 		fmt.Println(err)
 	}
 }
@@ -112,46 +129,30 @@ func (m *Miner) validateTemplate() {
 }
 func (m *Miner) fetchTemplate() {
 	log.Println("Fetching template...")
-	// TODO: send real msg
-	// templateReq := messages.FetchTemplate{
-	// 	PublicKey: m.PublicKey,
-	// }
-	// buf := new(bytes.Buffer)
-	// if err := gob.NewEncoder(buf).Encode(templateReq); err != nil {
-	// 	panic(err)
-	// }
-	// if err := m.transport.Broadcast(buf.Bytes()); err != nil {
-	// 	fmt.Println(err)
-	// }
-
-	testTemplate := &block.Block{
-		Header: block.Header{
-			PrevBlockHash: crypto.Random(),
-			MerkleRoot:    crypto.Random(),
-			Target:        params.MyConfig.MinTarget,
-			Difficulty:    1,
-		},
-		Txs: make([]*transaction.Transaction, 1),
+	templateReq := messages.FetchTemplate{
+		PublicKey: m.PublicKey,
+		FromAddr:  m.listenAddr,
 	}
-	testTemplate.Txs[0] = &transaction.Transaction{
-		Id:  crypto.Zero(),
-		Vin: []*transaction.TxInput{},
-		Vout: []*transaction.TxOutput{
-			{
-				Value:     10,
-				Id:        fmt.Sprintf("%x", crypto.Random()),
-				PublicKey: crypto.Random(),
-			},
-			{
-				Value:     12,
-				Id:        fmt.Sprintf("%x", crypto.Random()),
-				PublicKey: crypto.Random(),
-			},
-		},
+	if err := m.transport.Broadcast(templateReq); err != nil {
+		fmt.Println(err)
 	}
-	fmt.Printf("Received new template with target %x\n", testTemplate.Header.Target)
-	m.currTemplateMtx.Lock()
-	m.currTemplate = testTemplate
-	m.currTemplateMtx.Unlock()
-	m.isMining.Store(true)
+	for {
+		select {
+		case msg := <-m.internalChans[FetchTemplateResp]:
+			newTemplateMsg, ok := msg.(messages.Template)
+			if !ok {
+				fmt.Printf("[Miner]: received invalid template message: %+v\n", msg)
+				continue
+			}
+			fmt.Printf("Received new template with target %x\n", newTemplateMsg.Block.Header.Target)
+			m.currTemplateMtx.Lock()
+			m.currTemplate = newTemplateMsg.Block
+			m.currTemplateMtx.Unlock()
+			m.isMining.Store(true)
+			return
+		case <-time.After(2 * time.Second):
+			fmt.Printf("[Miner]: No new template\n")
+			return
+		}
+	}
 }

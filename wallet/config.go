@@ -1,6 +1,10 @@
 package wallet
 
-import "github.com/GiorgosMarga/blockchain/crypto"
+import (
+	"fmt"
+
+	"github.com/GiorgosMarga/blockchain/crypto"
+)
 
 type FeeType byte
 
@@ -22,12 +26,17 @@ type Config struct {
 }
 
 func DummyConfig() Config {
+	myKp, err := crypto.LoadFromFile("bob.priv.pem")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("[Wallet]: Public Key %x\n", myKp.PublicKeyBytes())
+
 	r1, _ := NewRecipient("Alice", "alice.pub.pem")
-	r2, _ := NewRecipient("Bob", "bob.pub.pem")
 	return Config{
-		MyKeys: make([]crypto.KeyPair, 0),
+		MyKeys: []crypto.KeyPair{myKp},
 		Contacts: []Recipient{
-			r1, r2,
+			r1,
 		},
 		DefaultNode: ":3000",
 		FeeConfig: FeeConfig{

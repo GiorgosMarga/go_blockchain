@@ -1,11 +1,10 @@
 package node
 
 import (
-	"bytes"
-	"encoding/gob"
 	"fmt"
-	"log"
+	"math"
 	"os"
+	"reflect"
 	"slices"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/GiorgosMarga/blockchain/params"
 	"github.com/GiorgosMarga/blockchain/transaction"
 	"github.com/GiorgosMarga/blockchain/transport"
-	"github.com/GiorgosMarga/blockchain/utils"
 )
 
 type MsgChan byte
@@ -52,7 +50,7 @@ func NewNode(listenAddr, blockchainPath string, peerNodes ...string) *Node {
 		Transport:  transport.New(listenAddr),
 		bcpath:     blockchainPath,
 		peerNodes:  make([]string, 0, len(peerNodes)),
-		Blockchain: &blockchain.Blockchain{},
+		Blockchain: blockchain.New(params.MyConfig),
 	}
 	go n.Transport.Start()
 
@@ -62,18 +60,26 @@ func NewNode(listenAddr, blockchainPath string, peerNodes ...string) *Node {
 	}
 	for _, peerNode := range peerNodes {
 		if err := n.Transport.Connect(peerNode); err != nil {
-			log.Printf("[Node]: error connecting with %s: %s\n", peerNode, err)
+			fmt.Printf("[Node]: error connecting with %s: %s\n", peerNode, err)
 		}
 		n.peerNodes = append(n.peerNodes, peerNode)
 	}
+
+	return n
+}
+
+func (n *Node) Start() {
+	go n.saveBlockchain()
+	go n.handleMessages()
 	if fileExists(n.bcpath) {
+		fmt.Println("[Node]: loading blockchain from file...")
 		if err := n.loadBlockchain(n.bcpath); err != nil {
 			panic(err)
 		}
 	} else {
-		if len(peerNodes) == 0 {
+		if len(n.peerNodes) == 0 {
 			// seed node
-			fmt.Println("seed node")
+			fmt.Println("[Node]: seed node...")
 			n.Blockchain = blockchain.New(params.MyConfig)
 		} else {
 			maxHeightPeer, maxHeight, err := n.findLongestChainNode()
@@ -89,80 +95,69 @@ func NewNode(listenAddr, blockchainPath string, peerNodes ...string) *Node {
 		}
 	}
 
-	return n
-}
+	time.Sleep(100 * time.Minute)
 
-func (n *Node) Start() {
-	go n.saveBlockchain()
-	for msg := range n.Transport.Consume() {
-		b := bytes.NewReader(msg)
-		var receivedMsg any
-		if err := gob.NewDecoder(b).Decode(&receivedMsg); err != nil {
-			log.Println(err)
-			continue
-		}
+}
+func (n *Node) handleMessages() {
+	for receivedMsg := range n.Transport.Consume() {
 		switch msg := receivedMsg.(type) {
-		case *messages.DifferenceReq:
+		case messages.DifferenceReq:
 			fmt.Println("difference request")
 			if err := n.handleDifferenceReq(msg); err != nil {
-				log.Println(err)
+				fmt.Println(err)
 			}
-		case *messages.DifferenceResp:
-			n.internalChans[DifferenceResp] <- receivedMsg
-		case *messages.FetchBlockReq:
+		case messages.DifferenceResp:
+			n.internalChans[DifferenceResp] <- msg
+		case messages.FetchBlockReq:
 			if err := n.handleBlockReq(msg); err != nil {
-				log.Println(err)
+				fmt.Println(err)
 			}
-		case *messages.FetchBlockResp:
-			n.internalChans[BlockResp] <- receivedMsg
-		case *messages.FetchUTXOsReq:
+		case messages.FetchBlockResp:
+			n.internalChans[BlockResp] <- msg
+		case messages.FetchUTXOsReq:
 			if err := n.handleFetchUtxos(msg); err != nil {
-				log.Println(err)
+				fmt.Println(err)
 			}
-		case *messages.NewBlock:
+		case messages.NewBlock:
 			if err := n.handleNewBlock(msg); err != nil {
-				log.Println(err)
+				fmt.Println(err)
 			}
-		case *messages.NewTx:
+		case messages.NewTx:
 			if err := n.handleNewTx(msg); err != nil {
-				log.Println(err)
+				fmt.Println(err)
 			}
-		case *messages.ValidateTemplateReq:
+		case messages.ValidateTemplateReq:
 			if err := n.handleValidateTemplateReq(msg); err != nil {
-				log.Println(err)
+				fmt.Println(err)
 			}
-		case *messages.SubmitTemplate:
+		case messages.SubmitTemplate:
 			if err := n.handleSubmitTemplate(msg); err != nil {
-				log.Println(err)
+				fmt.Println(err)
 			}
-		case *messages.SubmitTransaction:
+		case messages.SubmitTransaction:
 			if err := n.handleSubmitTx(msg); err != nil {
-				log.Println(err)
+				fmt.Println(err)
 			}
-		case *messages.FetchTemplate:
+		case messages.FetchTemplate:
 			if err := n.handleFetchTemplate(msg); err != nil {
-				log.Println(err)
+				fmt.Println(err)
 			}
 		default:
-			log.Printf("[Node]: Received invalid msg: %+v\n", msg)
+			fmt.Printf("[Node]: Received invalid msg: %+v, %s\n", msg, reflect.TypeOf(msg))
 		}
 	}
 }
-
 func (n *Node) getBlockchain(fromAddr string, numOfBlocks int) error {
+	fmt.Printf("[Node]: Fetching blockchain from %s\n", fromAddr)
 	for i := range numOfBlocks {
-		msg := messages.FetchBlockReq{Height: i}
-		buf := new(bytes.Buffer)
-		if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-			return err
-		}
-		if err := n.Transport.Send(fromAddr, buf.Bytes()); err != nil {
+		msg := messages.FetchBlockReq{Height: i, FromAddr: n.listenAddr}
+		if err := n.Transport.Send(fromAddr, msg); err != nil {
 			return err
 		}
 		for resp := range n.internalChans[BlockResp] {
-			blockResp, ok := resp.(*messages.FetchBlockResp)
+			blockResp, ok := resp.(messages.FetchBlockResp)
 			if !ok {
-				log.Printf("[Node]: received invalid block response for height %d\n", i)
+				fmt.Printf("[Node]: received invalid block response for height %d\n", i)
 				continue
 			}
 			// previous block
@@ -170,36 +165,33 @@ func (n *Node) getBlockchain(fromAddr string, numOfBlocks int) error {
 				continue
 			}
 			if err := n.Blockchain.AddBlock(blockResp.Block); err != nil {
-				log.Printf("[Node]: error adding block with height %d: %s\n", i, err)
+				fmt.Printf("[Node]: error adding block with height %d: %s\n", i, err)
 				continue
 			}
+			fmt.Printf("[Node]: added block with height: %d\n", i)
 			break
 		}
 	}
+	fmt.Printf("[Node]: Received %d/%d blocks\n", len(n.Blockchain.Blocks), numOfBlocks)
 	return nil
 }
 func (n *Node) findLongestChainNode() (string, int, error) {
-	maxHeight := 0
+	maxHeight := math.MinInt
 	maxHeightPeer := ""
 
-	msg := &messages.DifferenceReq{Height: 0}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		log.Printf("[Node]: error encoding difference request message: %s\n", err)
-		return "", -1, err
-	}
+	msg := messages.DifferenceReq{Height: 0, FromAddr: n.listenAddr}
 	for _, peer := range n.peerNodes {
-		log.Printf("[Node]: requesting height from peer %s\n", peer)
-		if err := n.Transport.Send(peer, buf.Bytes()); err != nil {
+		fmt.Printf("[Node]: requesting height from peer %s\n", peer)
+		if err := n.Transport.Send(peer, msg); err != nil {
 			return "", -1, err
 		}
 	respLoop:
 		for {
 			select {
 			case resp := <-n.internalChans[DifferenceResp]:
-				msg, ok := resp.(*messages.DifferenceResp)
+				msg, ok := resp.(messages.DifferenceResp)
 				if !ok {
-					log.Printf("[Node]: peer %s sent invalid difference response\n", peer)
+					fmt.Printf("[Node]: peer %s sent invalid difference response\n", peer)
 					continue
 				}
 				if msg.Height > maxHeight {
@@ -207,7 +199,7 @@ func (n *Node) findLongestChainNode() (string, int, error) {
 					maxHeightPeer = peer
 				}
 				break respLoop
-			case <-time.After(2 * time.Second):
+			case <-time.After(20 * time.Second):
 				break respLoop
 			}
 		}
@@ -220,58 +212,53 @@ func (n *Node) saveBlockchain() {
 	for range interval.C {
 		fmt.Println("[Node]: saving blockchain to disk...")
 		if err := n.Blockchain.LoadToFile(n.bcpath); err != nil {
-			log.Printf("[Node]: failed to save blockchain: %s\n", err)
+			fmt.Printf("[Node]: failed to save blockchain: %s\n", err)
 		}
 	}
 }
 
-func (n *Node) handleBlockReq(blockReq *messages.FetchBlockReq) error {
+func (n *Node) handleBlockReq(blockReq messages.FetchBlockReq) error {
 	if blockReq.Height > len(n.Blockchain.Blocks) {
 		return nil
 	}
 	block := n.Blockchain.Blocks[blockReq.Height]
-	resp := &messages.FetchBlockResp{
+	resp := messages.FetchBlockResp{
 		Block:    block,
 		FromAddr: n.listenAddr,
 		Height:   blockReq.Height,
 	}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(resp); err != nil {
-		return err
-	}
-	return n.Transport.Send(blockReq.FromAddr, buf.Bytes())
+	return n.Transport.Send(blockReq.FromAddr, resp)
 }
-func (n *Node) handleDifferenceReq(diffReq *messages.DifferenceReq) error {
-	resp := &messages.DifferenceResp{
+func (n *Node) handleDifferenceReq(diffReq messages.DifferenceReq) error {
+	resp := messages.DifferenceResp{
 		Height:   len(n.Blockchain.Blocks) - diffReq.Height,
 		FromAddr: n.listenAddr,
 	}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(resp); err != nil {
-		return err
-	}
-	return n.Transport.Send(diffReq.FromAddr, buf.Bytes())
+	return n.Transport.Send(diffReq.FromAddr, resp)
 }
 
-func (n *Node) handleFetchUtxos(utxoReq *messages.FetchUTXOsReq) error {
-	utxos := make([]utils.UtxoEntry, 0)
-	msg := &messages.UTXOsResp{
-		Utxos:    utxos,
+func (n *Node) handleFetchUtxos(utxoReq messages.FetchUTXOsReq) error {
+	// x, y := elliptic.UnmarshalCompressed(elliptic.P256(), utxoReq.PublicKey)
+
+	// pubKey := ecdsa.PublicKey{
+	// 	Curve: elliptic.P256(),
+	// 	X:     x,
+	// 	Y:     y,
+	// }
+
+	msg := messages.UTXOsResp{
+		Utxos:    n.Blockchain.GetUtxos(utxoReq.PublicKey),
 		FromAddr: n.listenAddr,
 	}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		return err
-	}
-	return n.Transport.Send(utxoReq.FromAddr, buf.Bytes())
+	return n.Transport.Send(utxoReq.FromAddr, msg)
 }
-func (n *Node) handleNewBlock(newBlockMsg *messages.NewBlock) error {
+func (n *Node) handleNewBlock(newBlockMsg messages.NewBlock) error {
 	return n.Blockchain.AddBlock(newBlockMsg.Block)
 }
-func (n *Node) handleNewTx(newTxMsg *messages.NewTx) error {
+func (n *Node) handleNewTx(newTxMsg messages.NewTx) error {
 	return n.Blockchain.AddToMempool(newTxMsg.Tx)
 }
-func (n *Node) handleValidateTemplateReq(validateTemplateReq *messages.ValidateTemplateReq) error {
+func (n *Node) handleValidateTemplateReq(validateTemplateReq messages.ValidateTemplateReq) error {
 	block := validateTemplateReq.Block
 	var isValid bool
 	if len(n.Blockchain.Blocks) == 0 {
@@ -282,31 +269,24 @@ func (n *Node) handleValidateTemplateReq(validateTemplateReq *messages.ValidateT
 	msg := messages.ValidateTemplateResp{
 		IsValid: isValid,
 	}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-		return err
-	}
-	return n.Transport.Send(validateTemplateReq.FromAddr, buf.Bytes())
+	return n.Transport.Send(validateTemplateReq.FromAddr, msg)
 }
-func (n *Node) handleSubmitTemplate(template *messages.SubmitTemplate) error {
+func (n *Node) handleSubmitTemplate(template messages.SubmitTemplate) error {
 	block := template.Block
 	if err := n.Blockchain.AddBlock(block); err != nil {
 		return err
 	}
+	fmt.Printf("[Node]: New block was added with hash: %x\n", block.BlockHash)
 
 	n.Blockchain.RebuildUtxos()
 	// bcast new block
 	newBlockMsg := messages.NewBlock{
 		Block: block,
 	}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(newBlockMsg); err != nil {
-		return err
-	}
 
-	return n.Transport.Broadcast(buf.Bytes())
+	return n.Transport.Broadcast(newBlockMsg)
 }
-func (n *Node) handleSubmitTx(txMsg *messages.SubmitTransaction) error {
+func (n *Node) handleSubmitTx(txMsg messages.SubmitTransaction) error {
 	tx := txMsg.Tx
 	if err := n.Blockchain.AddToMempool(tx); err != nil {
 		return err
@@ -317,28 +297,29 @@ func (n *Node) handleSubmitTx(txMsg *messages.SubmitTransaction) error {
 	newTxMsg := messages.NewTx{
 		Tx: tx,
 	}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(newTxMsg); err != nil {
-		return err
-	}
 
-	return n.Transport.Broadcast(buf.Bytes())
+	return n.Transport.Broadcast(newTxMsg)
 }
 
 // TODO: fix merkle root and coinbase tx
-func (n *Node) handleFetchTemplate(msg *messages.FetchTemplate) error {
+func (n *Node) handleFetchTemplate(msg messages.FetchTemplate) error {
+	fmt.Printf("Fetch template msg\n")
+
 	prevBlockHash := crypto.Zero()
 	if len(n.Blockchain.Blocks) > 0 {
 		prevBlockHash = n.Blockchain.Blocks[len(n.Blockchain.Blocks)-1].Hash()
 	}
 	txs := n.Blockchain.GetTxsFromMempool()
+	if len(txs) == 0 {
+		return nil
+	}
 	coinbaseTx := &transaction.Transaction{
 		Id:  crypto.Random(),
 		Vin: []*transaction.TxInput{},
 		Vout: []*transaction.TxOutput{
 			{
 				Value:     0,
-				Id:        "random_id",
+				Id:        crypto.Random(),
 				PublicKey: msg.PublicKey,
 			},
 		},
@@ -364,15 +345,12 @@ func (n *Node) handleFetchTemplate(msg *messages.FetchTemplate) error {
 		reward + minerFees
 	block.Header.MerkleRoot =
 		crypto.CalculateMerkleRoot(block.Txs)
+	block.BlockHash = block.Hash()
 
-	templateMsg := &messages.Template{
+	templateMsg := messages.Template{
 		Block: &block,
 	}
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(templateMsg); err != nil {
-		return err
-	}
-	return n.Transport.Send(msg.FromAddr, buf.Bytes())
+	return n.Transport.Send(msg.FromAddr, templateMsg)
 }
 func fileExists(path string) bool {
 	_, err := os.Stat(path)

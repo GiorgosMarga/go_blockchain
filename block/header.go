@@ -1,9 +1,8 @@
 package block
 
 import (
-	"bytes"
 	"crypto/sha256"
-	"encoding/gob"
+	"encoding/binary"
 	"time"
 
 	"github.com/GiorgosMarga/blockchain/crypto"
@@ -19,11 +18,13 @@ type Header struct {
 }
 
 func (h *Header) Bytes() []byte {
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(h); err != nil {
-		panic(err)
-	}
-	return buf.Bytes()
+	buf := make([]byte, 0, 16+3*32)
+	buf = binary.LittleEndian.AppendUint64(buf, uint64(h.Timestamp))
+	buf = binary.LittleEndian.AppendUint64(buf, h.Nonce)
+	buf = append(buf, h.PrevBlockHash[:]...)
+	buf = append(buf, h.MerkleRoot[:]...)
+	buf = append(buf, h.Target[:]...)
+	return buf
 }
 
 func (h *Header) CalculateHash() crypto.Hash {
@@ -32,7 +33,7 @@ func (h *Header) CalculateHash() crypto.Hash {
 
 func (h *Header) Mine(steps int) bool {
 	h.Nonce = 0
-	h.Timestamp = time.Now().Unix()
+	h.Timestamp = time.Now().UnixMilli()
 	for range steps {
 		hash := h.CalculateHash()
 		if hash.Matches(h.Target) {
@@ -40,7 +41,7 @@ func (h *Header) Mine(steps int) bool {
 		}
 		h.Nonce++
 		if h.Nonce == 0 {
-			h.Timestamp = time.Now().Unix()
+			h.Timestamp = time.Now().UnixMilli()
 		}
 	}
 	return false

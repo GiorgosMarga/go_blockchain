@@ -1,9 +1,18 @@
 package main
 
-import "github.com/GiorgosMarga/blockchain/wallet"
+import (
+	"flag"
+
+	"github.com/GiorgosMarga/blockchain/wallet"
+)
 
 func main() {
-	wallet := wallet.NewWallet()
+
+	var listenAddr string
+	flag.StringVar(&listenAddr, "port", ":9000", "Wallet listen address.")
+	flag.Parse()
+
+	wallet := wallet.NewWallet(listenAddr)
 	wallet.Start()
 
 }

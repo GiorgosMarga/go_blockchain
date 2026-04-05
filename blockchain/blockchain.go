@@ -1,7 +1,7 @@
 package blockchain
 
 import (
-	"crypto/ecdsa"
+	"bytes"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -62,8 +62,8 @@ func (b *Blockchain) AddBlock(block *block.Block) error {
 		}
 
 		// check merkle
-		if !crypto.CalculateMerkleRoot(block.Txs).Matches(block.Header.MerkleRoot) {
-			return ErrInvalidMerkle
+		if crypto.CalculateMerkleRoot(block.Txs) != block.Header.MerkleRoot {
+			return fmt.Errorf("%w: expected: %x, got %x\n", ErrInvalidMerkle, crypto.CalculateMerkleRoot(block.Txs), block.Header.MerkleRoot)
 		}
 
 		if block.Header.Timestamp <= lastBlock.Header.Timestamp {
@@ -88,7 +88,9 @@ func (b *Blockchain) TryAdjustTarget() {
 	if len(b.Blocks) == 0 {
 		return
 	}
+	fmt.Println(len(b.Blocks), b.config.HalvingInterval, b.config)
 	if len(b.Blocks)%int(b.config.HalvingInterval) != 0 {
+		fmt.Println("out")
 		return
 	}
 
@@ -125,6 +127,7 @@ func (b *Blockchain) AddToMempool(tx *transaction.Transaction) error {
 	// check if its not a ghost tx and that it doesnt double spend
 	knownInputs := make(map[crypto.Hash]struct{})
 	for _, input := range tx.Vin {
+
 		_, exists := b.Utxos[input.PrevTxOutputHash]
 		if !exists {
 			return ErrInvalidPrevHash
@@ -234,11 +237,10 @@ func (b *Blockchain) RebuildUtxos() {
 		}
 	}
 }
-func (b *Blockchain) GetUtxos(pubKey ecdsa.PublicKey) []utils.UtxoEntry {
-	pubKeyBytes, _ := pubKey.Bytes()
+func (b *Blockchain) GetUtxos(pubKey []byte) []utils.UtxoEntry {
 	utxos := make([]utils.UtxoEntry, 0)
 	for _, entry := range b.Utxos {
-		if entry.TxOutput.PublicKey == crypto.Hash(pubKeyBytes) {
+		if bytes.Equal(entry.TxOutput.PublicKey, pubKey) {
 			utxos = append(utxos, entry)
 		}
 	}
@@ -259,7 +261,7 @@ func (b *Blockchain) GetTxsFromMempool() []*transaction.Transaction {
 }
 
 func (b *Blockchain) LoadToFile(filepath string) error {
-	f, err := os.OpenFile(filepath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	f, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE, 0o666)
 	if err != nil {
 		return err
 	}

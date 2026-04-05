@@ -12,19 +12,21 @@ import (
 
 type KeyPair struct {
 	PrivateKey *ecdsa.PrivateKey
-	PublicKey ecdsa.PublicKey
+	PublicKey  ecdsa.PublicKey
 }
 
 func NewKeyPair() KeyPair {
-
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		panic(err)
 	}
 	return KeyPair{
 		PrivateKey: privateKey,
-		PublicKey: privateKey.PublicKey,
+		PublicKey:  privateKey.PublicKey,
 	}
+}
+func (kp *KeyPair) PublicKeyBytes() []byte {
+	return elliptic.MarshalCompressed(elliptic.P256(), kp.PublicKey.X, kp.PublicKey.Y)
 }
 
 func (kp KeyPair) Sign(hash Hash) ([]byte, error) {
@@ -46,7 +48,7 @@ func LoadFromFile(filename string) (KeyPair, error) {
 	}
 	return KeyPair{
 		PrivateKey: priv,
-		PublicKey: priv.PublicKey,
+		PublicKey:  priv.PublicKey,
 	}, nil
 }
 func LoadPubliFromFile(filename string) (KeyPair, error) {
