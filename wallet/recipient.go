@@ -11,6 +11,7 @@ type Recipient struct {
 	Name       string
 	PubKeyPath string
 	PubKey     ecdsa.PublicKey
+	Address    string
 }
 
 func NewRecipient(name, keyPath string) (Recipient, error) {
@@ -23,5 +24,6 @@ func NewRecipient(name, keyPath string) (Recipient, error) {
 		Name:       name,
 		PubKeyPath: keyPath,
 		PubKey:     kp.PublicKey,
+		Address:    fmt.Sprintf("%x", kp.PublicKeyBytes()),
 	}, nil
 }

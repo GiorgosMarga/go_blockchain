@@ -52,13 +52,12 @@ func NewCore(listenAddr string, config Config, utxos UtxoStore, peers ...string)
 	}
 	return c
 }
-func (c *Core) start() {
+func (c *Core) start() error {
 	go c.Transport.Start()
 
 	go c.handleMessages()
 
-	_ = c.FetchUtxos()
-	time.Sleep(10 * time.Minute)
+	return c.FetchUtxos()
 }
 func (c *Core) stop() {
 	c.stop()
@@ -109,7 +108,7 @@ func (c *Core) CreateTx(recipientKey ecdsa.PublicKey, amount uint) (*transaction
 		}
 	}
 	if inputSum < int(totalAmount) {
-		log.Printf("Insufficient funds: have %d, need %d\n", inputSum, totalAmount)
+		// log.Printf("Insufficient funds: have %d, need %d\n", inputSum, totalAmount)
 		return nil, fmt.Errorf("Insufficient funds")
 	}
 	outputs := []*transaction.TxOutput{
@@ -150,12 +149,12 @@ func (c *Core) GetBalance() uint64 {
 		}
 	}
 
-	log.Printf("Current balance is %d\n", balance)
+	// log.Printf("Current balance is %d\n", balance)
 	return balance
 }
 
 func (c *Core) FetchUtxos() error {
-	log.Printf("Trying to fetch utxos from default node %s...\n", c.Config.DefaultNode)
+	// fmt.Printf("Trying to fetch utxos from default node %s...\n", c.Config.DefaultNode)
 
 	for _, key := range c.Utxos.myKeys {
 		msg := messages.FetchUTXOsReq{
@@ -172,15 +171,11 @@ func (c *Core) FetchUtxos() error {
 				fmt.Printf("[Wallet]: received invalid msg %+v\n", utxoMsg)
 				continue
 			}
-			for _, entry := range utxoMsg.Utxos {
-				fmt.Printf("Received: %x %v\n", entry.TxOutput.Hash(), entry.TxOutput)
-			}
 			c.Utxos.utxos[key.PublicKey] = utxoMsg.Utxos
 		case <-time.After(2 * time.Second):
 			continue
 		}
 	}
-	fmt.Printf("[Wallet]: Current balance %d shatoshi\n", c.GetBalance())
 	return nil
 }
 func (c *Core) handleMessages() {
@@ -190,5 +185,4 @@ func (c *Core) handleMessages() {
 			c.internalChans[UtxosMsg] <- msg
 		}
 	}
-	fmt.Println("stopping")
 }

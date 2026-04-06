@@ -25,7 +25,7 @@ type Config struct {
 	FeeConfig   FeeConfig
 }
 
-func DummyConfig() Config {
+func BobConfig() Config {
 	myKp, err := crypto.LoadFromFile("bob.priv.pem")
 	if err != nil {
 		panic(err)
@@ -33,6 +33,26 @@ func DummyConfig() Config {
 	fmt.Printf("[Wallet]: Public Key %x\n", myKp.PublicKeyBytes())
 
 	r1, _ := NewRecipient("Alice", "alice.pub.pem")
+	return Config{
+		MyKeys: []crypto.KeyPair{myKp},
+		Contacts: []Recipient{
+			r1,
+		},
+		DefaultNode: ":3000",
+		FeeConfig: FeeConfig{
+			FeeType: Percent,
+			Value:   0.1,
+		},
+	}
+}
+func AliceConfig() Config {
+	myKp, err := crypto.LoadFromFile("alice.priv.pem")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("[Wallet]: Public Key %x\n", myKp.PublicKeyBytes())
+
+	r1, _ := NewRecipient("Bob", "bob.pub.pem")
 	return Config{
 		MyKeys: []crypto.KeyPair{myKp},
 		Contacts: []Recipient{

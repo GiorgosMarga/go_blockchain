@@ -1,0 +1,15 @@
+<ul class="recipients-list">
+  {{if .Contacts}}
+  {{range .Contacts}}
+  <li class="recipient-item">
+    <div class="recipient-info">
+      <div class="recipient-name">{{.Name}}</div>
+      <div class="recipient-address">{{.Address}}</div>
+    </div>
+    <button class="btn-select" onclick="selectRecipient('{{.Address}}')">Select</button>
+  </li>
+  {{end}}
+  {{else}}
+  <li style="padding: 12px; text-align: center; color: #666;">No recipients added yet</li>
+  {{end}}
+</ul>

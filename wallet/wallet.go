@@ -2,45 +2,53 @@ package wallet
 
 import (
 	"crypto/ecdsa"
-	"log"
-	"time"
 
 	"github.com/GiorgosMarga/blockchain/utils"
 )
 
 type Wallet struct {
-	listenAddr string
+	Core     *Core
+	quitChan chan struct{}
 }
 
-func NewWallet(listenAddr string) *Wallet {
+func NewWallet(listenAddr string, cfg Config) *Wallet {
 	return &Wallet{
-		listenAddr: listenAddr,
+		quitChan: make(chan struct{}),
+		Core: NewCore(
+			listenAddr,
+			cfg,
+			UtxoStore{
+				myKeys: cfg.MyKeys,
+				utxos:  make(map[ecdsa.PublicKey][]utils.UtxoEntry),
+			}, cfg.DefaultNode),
 	}
 }
 
 func (w *Wallet) Start() {
-	log.Println("Starting wallet application...")
+	if err := w.Core.start(); err != nil {
+		panic(err)
+	}
+	<-w.quitChan
+	w.Core.stop()
+}
+func (w *Wallet) UpdateBalance() error {
+	return w.Core.FetchUtxos()
+}
+func (w *Wallet) Balance() uint64 {
+	return w.Core.GetBalance()
+}
+func (w *Wallet) Stop() {
+	w.quitChan <- struct{}{}
+}
 
-	config := DummyConfig()
-	core := NewCore(
-		w.listenAddr,
-		config,
-		UtxoStore{
-			myKeys: config.MyKeys,
-			utxos:  make(map[ecdsa.PublicKey][]utils.UtxoEntry),
-		}, config.DefaultNode)
-	go core.start()
-
-
-	time.Sleep(10 * time.Second)
-	newTx, err := core.CreateTx(config.Contacts[0].PubKey, 1_000)
+func (w *Wallet) CreateTx(recipientPubKey ecdsa.PublicKey, amount uint) error {
+	newTx, err := w.Core.CreateTx(recipientPubKey, amount)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	if err := core.SendTx(newTx); err != nil {
-		panic(err)
+	if err := w.Core.SendTx(newTx); err != nil {
+		return err
 	}
-	time.Sleep(10 * time.Minute)
-	core.stop()
+	return nil
 }

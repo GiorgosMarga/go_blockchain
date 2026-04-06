@@ -160,7 +160,7 @@ func (t *TCPTransport) Start() error {
 		return err
 	}
 	t.ln = ln
-	log.Printf("[TCP]: Listening on port: %s...\n", t.Address)
+	// log.Printf("[TCP]: Listening on port: %s...\n", t.Address)
 	for {
 		select {
 		// TODO: shutdown all handle conn loops
