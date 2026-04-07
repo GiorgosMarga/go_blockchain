@@ -27,7 +27,7 @@ type TxOutput struct {
 }
 
 func (tout *TxOutput) bytes() []byte {
-	buf := make([]byte, 40+len(tout.PublicKey)) // 8 + 32 + 32
+	buf := make([]byte, 40+len(tout.PublicKey)) // 8 + 32
 	binary.LittleEndian.PutUint64(buf, tout.Value)
 	copy(buf[8:], tout.Id[:])
 	copy(buf[40:], tout.PublicKey)
@@ -44,7 +44,6 @@ type Transaction struct {
 }
 
 func (tx *Transaction) Hash() crypto.Hash {
-
 	buf := make([]byte, 32)
 	copy(buf, tx.Id[:])
 	for _, tin := range tx.Vin {

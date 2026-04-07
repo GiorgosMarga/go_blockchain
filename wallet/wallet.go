@@ -2,6 +2,7 @@ package wallet
 
 import (
 	"crypto/ecdsa"
+	"crypto/elliptic"
 
 	"github.com/GiorgosMarga/blockchain/utils"
 )
@@ -18,8 +19,8 @@ func NewWallet(listenAddr string, cfg Config) *Wallet {
 			listenAddr,
 			cfg,
 			UtxoStore{
-				myKeys: cfg.MyKeys,
-				utxos:  make(map[ecdsa.PublicKey][]utils.UtxoEntry),
+				MyKeys: cfg.MyKeys,
+				Utxos:  make(map[ecdsa.PublicKey][]utils.UtxoEntry),
 			}, cfg.DefaultNode),
 	}
 }
@@ -41,12 +42,15 @@ func (w *Wallet) Stop() {
 	w.quitChan <- struct{}{}
 }
 
-func (w *Wallet) CreateTx(recipientPubKey ecdsa.PublicKey, amount uint) error {
-	newTx, err := w.Core.CreateTx(recipientPubKey, amount)
+func (w *Wallet) Send(address []byte, amount uint) error {
+	pubKey, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), address)
 	if err != nil {
 		return err
 	}
-
+	newTx, err := w.Core.CreateTx(*pubKey, amount)
+	if err != nil {
+		return err
+	}
 	if err := w.Core.SendTx(newTx); err != nil {
 		return err
 	}

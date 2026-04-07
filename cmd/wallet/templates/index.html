@@ -138,6 +138,9 @@
       background: #f9fafb;
       border-radius: 6px;
       margin-bottom: 8px;
+      overflow-wrap: break-word;
+      /* modern standard */
+      word-break: break-all;
     }
 
     .recipient-info {
@@ -145,7 +148,7 @@
     }
 
     .recipient-name {
-      font-weight: 500;
+      font-weight: 800;
       color: #333;
       margin-bottom: 2px;
     }
@@ -154,6 +157,7 @@
       font-size: 12px;
       color: #666;
       font-family: 'Courier New', monospace;
+      text-wrap: "wrap";
     }
 
     .btn-select {
@@ -185,6 +189,9 @@
       border-radius: 6px;
       margin-bottom: 16px;
       font-size: 14px;
+      overflow-wrap: break-word;
+      /* modern standard */
+      word-break: break-all;
     }
 
     .message.success {
@@ -285,6 +292,13 @@
         {{template "contacts.html" .}}
       </div>
     </div>
+    <!-- RTransactions -->
+    <!-- <div class="card">
+      <h2>Recent Transactions / UTXOs</h2>
+      <div id="utxos-list">
+        {{template "utxos.html" .}}
+      </div>
+    </div> -->
   </div>
 
   <script>

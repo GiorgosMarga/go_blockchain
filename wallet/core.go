@@ -3,7 +3,6 @@ package wallet
 import (
 	"bytes"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"fmt"
 	"log"
 	"time"
@@ -71,7 +70,7 @@ func (c *Core) SendTx(tx *transaction.Transaction) error {
 
 func (c *Core) CreateTx(recipientKey ecdsa.PublicKey, amount uint) (*transaction.Transaction, error) {
 	bufKey, _ := recipientKey.Bytes()
-	log.Printf("Creating transaction for %d satoshis to %x\n", amount, bufKey)
+	log.Printf("Creating transaction for %d coins to %x\n", amount, bufKey)
 
 	fee := c.calculateFee(amount)
 	totalAmount := fee + amount
@@ -79,8 +78,8 @@ func (c *Core) CreateTx(recipientKey ecdsa.PublicKey, amount uint) (*transaction
 	inputs := make([]*transaction.TxInput, 0)
 	inputSum := 0
 
-	for pubKey, entries := range c.Utxos.utxos {
-		pubBuf := elliptic.MarshalCompressed(elliptic.P256(), pubKey.X, pubKey.Y)
+	for pubKey, entries := range c.Utxos.Utxos {
+		pubBuf, _ := pubKey.Bytes()
 		for _, entry := range entries {
 			if entry.IsSpent {
 				continue
@@ -88,7 +87,7 @@ func (c *Core) CreateTx(recipientKey ecdsa.PublicKey, amount uint) (*transaction
 			if inputSum >= int(totalAmount) {
 				break
 			}
-			for _, kp := range c.Utxos.myKeys {
+			for _, kp := range c.Utxos.MyKeys {
 				if bytes.Equal(pubBuf, kp.PublicKeyBytes()) {
 					sig, err := kp.Sign(entry.TxOutput.Hash())
 					if err != nil {
@@ -115,15 +114,15 @@ func (c *Core) CreateTx(recipientKey ecdsa.PublicKey, amount uint) (*transaction
 		{
 			Value:     uint64(amount),
 			Id:        crypto.Random(),
-			PublicKey: elliptic.MarshalCompressed(elliptic.P256(), recipientKey.X, recipientKey.Y),
+			PublicKey: bufKey,
 		},
 	}
 	if inputSum > int(totalAmount) {
 		outputs = append(outputs,
 			&transaction.TxOutput{
-				Value:     uint64(inputSum - int(amount)),
+				Value:     uint64(inputSum - int(totalAmount)),
 				Id:        crypto.Random(),
-				PublicKey: c.Utxos.myKeys[0].PublicKeyBytes(),
+				PublicKey: c.Utxos.MyKeys[0].PublicKeyBytes(),
 			})
 	}
 	return &transaction.Transaction{
@@ -134,16 +133,19 @@ func (c *Core) CreateTx(recipientKey ecdsa.PublicKey, amount uint) (*transaction
 }
 
 func (c *Core) calculateFee(amount uint) uint {
+	var fee uint
 	if c.Config.FeeConfig.FeeType == Fixed {
-		return uint(c.Config.FeeConfig.Value)
+		fee = uint(c.Config.FeeConfig.Value)
 	} else {
-		return uint(float64(amount) * float64(c.Config.FeeConfig.Value) / 100)
+		fee = uint(float64(amount) * float64(c.Config.FeeConfig.Value) / 100)
 	}
+	fmt.Println("Fee: ", fee)
+	return fee
 }
 
 func (c *Core) GetBalance() uint64 {
 	var balance uint64 = 0
-	for _, entries := range c.Utxos.utxos {
+	for _, entries := range c.Utxos.Utxos {
 		for _, entry := range entries {
 			balance += entry.TxOutput.Value
 		}
@@ -156,7 +158,7 @@ func (c *Core) GetBalance() uint64 {
 func (c *Core) FetchUtxos() error {
 	// fmt.Printf("Trying to fetch utxos from default node %s...\n", c.Config.DefaultNode)
 
-	for _, key := range c.Utxos.myKeys {
+	for _, key := range c.Utxos.MyKeys {
 		msg := messages.FetchUTXOsReq{
 			PublicKey: key.PublicKeyBytes(),
 			FromAddr:  c.listenAddr,
@@ -171,7 +173,7 @@ func (c *Core) FetchUtxos() error {
 				fmt.Printf("[Wallet]: received invalid msg %+v\n", utxoMsg)
 				continue
 			}
-			c.Utxos.utxos[key.PublicKey] = utxoMsg.Utxos
+			c.Utxos.Utxos[key.PublicKey] = utxoMsg.Utxos
 		case <-time.After(2 * time.Second):
 			continue
 		}

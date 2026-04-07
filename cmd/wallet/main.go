@@ -18,10 +18,13 @@ func main() {
 	flag.StringVar(&username, "user", "Alice", "Dummy user to initialize wallet.")
 	flag.Parse()
 	var cfg wallet.Config
-	if username == "Bob" {
+	switch username {
+	case "Bob", "bob", "b":
 		cfg = wallet.BobConfig()
-	} else {
+	case "Alice", "alice", "a":
 		cfg = wallet.AliceConfig()
+	case "Miner", "miner", "m":
+		cfg = wallet.MinerConfig()
 	}
 	wallet := wallet.NewWallet(walletPort, cfg)
 	go wallet.Start()

@@ -1,0 +1,68 @@
+{{range .Blocks}}
+<div class="block-item">
+  <div class="block-header">
+    <div>
+      Block
+      <span class="small">• {{.Header.Timestamp | timeFormat}}</span>
+    </div>
+    <div class="small">Block Hash: <span class="value">{{.BlockHash | shortHash}}</span></div>
+  </div>
+
+  <div class="label" style="margin-top: 20px;">Transactions ({{len .Txs}})</div>
+
+  {{range .Txs}}
+  <div class="tx-item {{if eq (len .Vin) 0}}coinbase{{end}}">
+
+    <!-- Transaction Header -->
+    <div style="margin-bottom: 14px;">
+      {{if eq (len .Vin) 0}}
+      <strong style="color: #10b981;">Coinbase Transaction (Block Reward + Fees)</strong>
+      {{else}}
+      <strong>Transaction</strong>
+      {{end}}
+    </div>
+
+    <!-- TX Identifiers -->
+    <div style="background: #f8fafc; padding: 12px; border-radius: 6px; margin-bottom: 14px; font-size: 13px;">
+      <div><strong>TX ID:</strong> <span class="value">{{.Id | shortHash}}</span></div>
+      <div style="margin-top: 6px;"><strong>TX Hash:</strong> <span class="value">{{.Hash | shortHash}}</span>
+      </div>
+    </div>
+
+    <!-- Outputs -->
+    <div class="label">Outputs</div>
+    {{range .Vout}}
+    <div style="padding: 10px; background: #f0fdf4; border-radius: 6px; margin-bottom: 8px;">
+      <strong style="color: #10b981;">{{.Value}} coins</strong>
+      <span class="small"> → </span>
+      <span class="value">{{.PublicKey | shortPubkey}}</span>
+      <div class="small" style="margin-top: 4px; color: #666;">
+        Output Hash: <span class="value">{{.Hash | shortHash}}</span>
+      </div>
+    </div>
+    {{end}}
+
+    <!-- Inputs -->
+    {{if gt (len .Vin) 0}}
+    <div class="label" style="margin-top: 16px;">Inputs — Spending From Previous Outputs</div>
+    {{range .Vin}}
+    <div style="padding: 12px; background: #fef2f2; border-radius: 6px; margin-bottom: 10px;">
+      <div style="color: #ef4444; font-weight: 500;">Spending Output</div>
+      <div class="small" style="margin-top: 4px;">
+        Previous Output Hash (stored): <span class="value">{{.PrevTxOutputHash | shortHash}}</span>
+      </div>
+      {{/* If you want to show computed hash too, but since we don't have the full output here, we skip it for now */}}
+    </div>
+    {{end}}
+    {{end}}
+
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+{{if not .Blocks}}
+<div style="text-align: center; padding: 60px; color: #666;">
+  No blocks found yet.
+</div>
+{{end}}

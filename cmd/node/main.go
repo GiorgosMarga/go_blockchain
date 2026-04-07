@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"log"
 	"strings"
 
 	"github.com/GiorgosMarga/blockchain/node"
@@ -25,5 +26,8 @@ func main() {
 
 	node := node.NewNode(listenAddr, bcPath, peerNodes...)
 
-	node.Start()
+	go node.Start()
+
+	s := NewServer(":3001", node)
+	log.Fatal(s.Start())
 }

@@ -238,13 +238,6 @@ func (n *Node) handleDifferenceReq(diffReq messages.DifferenceReq) error {
 }
 
 func (n *Node) handleFetchUtxos(utxoReq messages.FetchUTXOsReq) error {
-	// x, y := elliptic.UnmarshalCompressed(elliptic.P256(), utxoReq.PublicKey)
-
-	// pubKey := ecdsa.PublicKey{
-	// 	Curve: elliptic.P256(),
-	// 	X:     x,
-	// 	Y:     y,
-	// }
 
 	msg := messages.UTXOsResp{
 		Utxos:    n.Blockchain.GetUtxos(utxoReq.PublicKey),
@@ -297,7 +290,15 @@ func (n *Node) handleSubmitTx(txMsg messages.SubmitTransaction) error {
 	newTxMsg := messages.NewTx{
 		Tx: tx,
 	}
-
+	fmt.Printf("New tx: %+v\n", tx)
+	fmt.Println("Vin: ")
+	for _, tin := range tx.Vin {
+		fmt.Printf("%+v\n", tin)
+	}
+	fmt.Println("Vout: ")
+	for _, tout := range tx.Vout {
+		fmt.Printf("%+v\n", tout)
+	}
 	return n.Transport.Broadcast(newTxMsg)
 }
 
@@ -341,6 +342,7 @@ func (n *Node) handleFetchTemplate(msg messages.FetchTemplate) error {
 		panic(err)
 	}
 	reward := n.Blockchain.CalcBlockReward()
+	fmt.Printf("Reward: %d\n", reward)
 	block.Txs[0].Vout[0].Value =
 		reward + minerFees
 	block.Header.MerkleRoot =

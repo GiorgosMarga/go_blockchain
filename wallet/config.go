@@ -65,3 +65,24 @@ func AliceConfig() Config {
 		},
 	}
 }
+func MinerConfig() Config {
+	myKp, err := crypto.LoadFromFile("miner.priv.pem")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("[Wallet]: Public Key %x\n", myKp.PublicKeyBytes())
+
+	r1, _ := NewRecipient("Bob", "bob.pub.pem")
+	r2, _ := NewRecipient("Alice", "alice.pub.pem")
+	return Config{
+		MyKeys: []crypto.KeyPair{myKp},
+		Contacts: []Recipient{
+			r1, r2,
+		},
+		DefaultNode: ":3000",
+		FeeConfig: FeeConfig{
+			FeeType: Percent,
+			Value:   0.1,
+		},
+	}
+}

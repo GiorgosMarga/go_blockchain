@@ -26,7 +26,8 @@ func NewKeyPair() KeyPair {
 	}
 }
 func (kp *KeyPair) PublicKeyBytes() []byte {
-	return elliptic.MarshalCompressed(elliptic.P256(), kp.PublicKey.X, kp.PublicKey.Y)
+	b, _ := kp.PublicKey.Bytes()
+	return b
 }
 
 func (kp KeyPair) Sign(hash Hash) ([]byte, error) {

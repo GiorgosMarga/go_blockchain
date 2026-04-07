@@ -8,6 +8,6 @@ import (
 )
 
 type UtxoStore struct {
-	myKeys []crypto.KeyPair
-	utxos  map[ecdsa.PublicKey][]utils.UtxoEntry
+	MyKeys []crypto.KeyPair
+	Utxos  map[ecdsa.PublicKey][]utils.UtxoEntry
 }

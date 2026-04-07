@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/elliptic"
 	"flag"
 	"fmt"
 	"log"
@@ -30,8 +29,6 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("Public key %x\n", kp.PublicKeyBytes())
-
-	keyBuf := elliptic.MarshalCompressed(elliptic.P256(), kp.PublicKey.X, kp.PublicKey.Y)
-	m := miner.New(port, keyBuf, knownPeers...)
+	m := miner.New(port, kp.PublicKeyBytes(), knownPeers...)
 	m.Start()
 }

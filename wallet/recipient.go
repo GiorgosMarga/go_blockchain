@@ -1,7 +1,6 @@
 package wallet
 
 import (
-	"crypto/ecdsa"
 	"fmt"
 
 	"github.com/GiorgosMarga/blockchain/crypto"
@@ -10,7 +9,7 @@ import (
 type Recipient struct {
 	Name       string
 	PubKeyPath string
-	PubKey     ecdsa.PublicKey
+	PubKey     []byte
 	Address    string
 }
 
@@ -23,7 +22,7 @@ func NewRecipient(name, keyPath string) (Recipient, error) {
 	return Recipient{
 		Name:       name,
 		PubKeyPath: keyPath,
-		PubKey:     kp.PublicKey,
+		PubKey:     kp.PublicKeyBytes(),
 		Address:    fmt.Sprintf("%x", kp.PublicKeyBytes()),
 	}, nil
 }
